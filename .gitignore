@@ -1,3 +1,5 @@
+CEC2013-distributed/
+*.tar
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
