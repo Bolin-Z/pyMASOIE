@@ -1,5 +1,5 @@
 from typing import Callable
-from MASOIE.CEC2013 import CEC2013
+from CEC2013 import CEC2013
 
 class LocalEvaluator:
     def __init__(self, id:int, localEvaluate:Callable[[list[float], int], float]) -> None:

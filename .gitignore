@@ -1,4 +1,5 @@
-CEC2013-distributed/
+CEC2013-distributed/*
+!CEC2013-distributed/main.py
 *.tar
 # Byte-compiled / optimized / DLL files
 __pycache__/
