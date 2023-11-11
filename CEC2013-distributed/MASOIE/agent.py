@@ -37,6 +37,7 @@ class Agent:
         # dllso
         phi:float,
         # network
+        ID:int,
         neighborsID:list[int],
         neighborsWeight:list[float]
         ) -> None:
@@ -72,6 +73,7 @@ class Agent:
             self.levelPerformance.append(1.0)
 
         # network
+        self.ID = ID
         self.neighborsID = neighborsID
         self.neighborsWeight = neighborsWeight
         self.routingTable:dict[int, int] = dict()
