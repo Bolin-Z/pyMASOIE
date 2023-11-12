@@ -14,7 +14,7 @@ class LocalEvaluator:
         return self.f(x, self.id)
 
 if __name__ == "__main__":
-    problem = CEC2013("50D20n1d-6")
+    problem = CEC2013("100D20n3dheter-4")
 
     numberOfAgents =  problem.getGroupNum()
     dimension = problem.getDimension()

@@ -4,6 +4,7 @@ from .communicate import ANY_SRC, ANY_TAG, DEFAULT_TIMEOUT
 from functools import total_ordering
 from typing import Callable
 from math import exp
+from CEC2013 import CEC2013
 
 @total_ordering
 class Particle:
@@ -20,6 +21,15 @@ class Particle:
     def __eq__(self, __o: "Particle") -> bool:
         return self.fitness == __o.fitness
 
+class LocalEvaluator:
+    def __init__(self, id:int, localEvaluate:Callable[[list[float], int], float]) -> None:
+        self.id = id
+        self.f = localEvaluate
+        self.evaluateCounter = 0
+
+    def __call__(self, x:list[float]) -> float:
+        self.evaluateCounter += 1
+        return self.f(x, self.id)
 @ray.remote
 class Agent:
     def __init__(
@@ -28,7 +38,8 @@ class Agent:
         dimension:int,
         lowerBound:float,
         upperBound:float,
-        evaluate:Callable[[list[float]], float],
+        # evaluate:Callable[[list[float]], float],
+        funcID:str,
         # structure
         swarmSize:int,
         # internal learning
@@ -43,10 +54,11 @@ class Agent:
         ) -> None:
 
         # problem
+        problem = CEC2013(funcID)
         self.dimention = dimension
         self.upperBound = upperBound
         self.lowerBound = lowerBound
-        self.f = evaluate
+        self.f = LocalEvaluator(ID, problem.local_eva)
         # structure
         self.swarmSize = swarmSize
         # external learning
