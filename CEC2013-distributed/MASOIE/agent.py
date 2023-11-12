@@ -103,9 +103,16 @@ class Agent:
         self.swarm.sort()
         self.bestFitness = self.swarm[0].fitness
 
-    def run(self):
-        self._internalLearning()
-   
+    def run(self) -> float:
+        gen = 100000
+        for _ in range(gen):
+            for _ in range(self.learningInterval):
+                self._internalLearning()
+            self._externalLearning()
+            if self.ID == 0:
+                print(f"{self.f.evaluateCounter} {self.bestFitness}")
+        return self.swarm[0].position
+
     def _creatRoutingTable(self):
         pass
     
@@ -161,7 +168,38 @@ class Agent:
         self.bestFitness = self.swarm[0].fitness
     
     def _externalLearning(self):
-        pass
+        POSITION = 2
+        positions = [[p.position[d] for d in range(self.dimention)] for p in self.swarmOrdered]
+        send.remote(self.ID, self.neighborsID, positions, POSITION)
+        
+        for p in self.swarmOrdered:
+            for d in range(self.dimention):
+                p.externalVelocity[d] *= random.random() * self.psi
+        
+        waitingTasks = [recv.remote(n, self.ID, POSITION) for n in self.neighborsID]
+        while waitingTasks:
+            readyTasks, waitingTasks = ray.wait(waitingTasks)
+            for task in readyTasks:
+                msg = ray.get(task)
+                assert msg
+                src, position = msg
+                for i in range(self.swarmSize):
+                    for d in range(self.dimention):
+                        self.swarmOrdered[i].externalVelocity[d] += self.neighborsWeight[src] * (position[i][d] - self.swarmOrdered[i].position[d])
+
+        
+        for p in self.swarmOrdered:
+            for d in range(self.dimention):
+                p.internalVelocity[d] = p.externalVelocity[d]
+                p.position[d] += p.externalVelocity[d]
+                if p.position[d] > self.upperBound:
+                    p.position[d] = self.upperBound
+                if p.position[d] < self.lowerBound:
+                    p.position[d] = self.lowerBound
+            p.fitness = self.f(p.position)
+        
+        self.swarm.sort()
+        self.bestFitness = self.swarm[0].fitness
 
     def _selectLevel(self) -> int:
         total = sum([exp(7 * p) for p in self.levelPerformance])

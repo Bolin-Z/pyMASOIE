@@ -40,7 +40,7 @@ if __name__ == "__main__":
         dimension,
         lowerBound,
         upperBound,
-        localEvaluators[i],
+        "100D20n3dheter-4",
         swarmSize,
         learningInterval,
         psi,
@@ -50,4 +50,19 @@ if __name__ == "__main__":
         neighborsWeightList[i]
     ) for i in range(numberOfAgents)]
 
-    time.sleep(5)
+    tasks = [agent.run.remote() for agent in agents]
+    positions = [[0.0 for _ in range(dimension)] for _ in range(numberOfAgents)]
+
+    while tasks:
+        ready, tasks = ray.wait(tasks)
+        for ref  in ready:
+            p = ray.get(ref)
+            positions.append(p)
+    
+    solution = [0.0 for _ in range(dimension)]
+    for d in range(dimension):
+        for a in range(numberOfAgents):
+            solution[d] += positions[a][d]
+        solution[d] = solution[d] / numberOfAgents
+
+    print(f"finall: {problem.global_eva(solution)}")
