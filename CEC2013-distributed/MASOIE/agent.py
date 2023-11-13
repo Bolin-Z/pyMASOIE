@@ -139,35 +139,37 @@ class Agent:
 
         TIMEOUT = 60
         while True:
-            m:Message = ray.get(recv.remote(ANY_SRC, self.ID, ROUTING, TIMEOUT))
-            if not m:
+            res:Message = ray.get(recv.remote(ANY_SRC, self.ID, ROUTING, TIMEOUT))
+            if not res:
                 break
-            if m.tag == FLOODING:
-                if m.id not in messageCache:
-                    messageCache[m.id] = deepcopy(m)
-                    nm = Message(m.id, m.age + 1, self.ID, FLOODING)
-                    send.remote(self.ID, self.neighborsID, nm, ROUTING)
-                    if m.id not in self.routingTable:
-                        self.routingTable[m.id] = set()
-                    for n in self.neighborsID:
-                        self.routingTable[m.id].add(n)
-                else:
-                    om = messageCache.pop(m.id)
-                    if om.age > m.age:
+            else:
+                _, m = res
+                if m.tag == FLOODING:
+                    if m.id not in messageCache:
                         messageCache[m.id] = deepcopy(m)
                         nm = Message(m.id, m.age + 1, self.ID, FLOODING)
                         send.remote(self.ID, self.neighborsID, nm, ROUTING)
+                        if m.id not in self.routingTable:
+                            self.routingTable[m.id] = set()
                         for n in self.neighborsID:
                             self.routingTable[m.id].add(n)
-                        st = Message(m.id, 0, self.ID, STOP)
-                        send.remote(self.ID, om.source, st, ROUTING)
                     else:
-                        st = Message(m.id, 0, self.ID, STOP)
-                        send.remote(self.ID, m.source, st, ROUTING)
-            elif m.tag == STOP:
-                self.routingTable[m.id].discard(m.source)
-            else:
-                raise ValueError("Incorrect routing message type.")
+                        om = messageCache.pop(m.id)
+                        if om.age > m.age:
+                            messageCache[m.id] = deepcopy(m)
+                            nm = Message(m.id, m.age + 1, self.ID, FLOODING)
+                            send.remote(self.ID, self.neighborsID, nm, ROUTING)
+                            for n in self.neighborsID:
+                                self.routingTable[m.id].add(n)
+                            st = Message(m.id, 0, self.ID, STOP)
+                            send.remote(self.ID, om.source, st, ROUTING)
+                        else:
+                            st = Message(m.id, 0, self.ID, STOP)
+                            send.remote(self.ID, m.source, st, ROUTING)
+                elif m.tag == STOP:
+                    self.routingTable[m.id].discard(m.source)
+                else:
+                    raise ValueError("Incorrect routing message type.")
 
 
     def _internalLearning(self):
