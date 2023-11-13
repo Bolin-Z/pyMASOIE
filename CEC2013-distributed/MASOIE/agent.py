@@ -5,6 +5,7 @@ from functools import total_ordering
 from typing import Callable
 from math import exp
 from CEC2013 import CEC2013
+from copy import deepcopy
 
 @total_ordering
 class Particle:
@@ -87,8 +88,10 @@ class Agent:
         # network
         self.ID = ID
         self.neighborsID = neighborsID
-        self.neighborsWeight = neighborsWeight
-        self.routingTable:dict[int, int] = dict()
+        self.neighborsWeight:dict[int, float] = dict()
+        for i in range(len(self.neighborsID)):
+            self.neighborsWeight[self.neighborsID[i]] = neighborsWeight[i]
+        self.routingTable:dict[int, set[int]] = dict()
 
         # initiate swarm
         self.swarm:list[Particle] = []
@@ -104,18 +107,69 @@ class Agent:
         self.bestFitness = self.swarm[0].fitness
 
     def run(self) -> float:
-        gen = 100000
-        for _ in range(gen):
-            for _ in range(self.learningInterval):
-                self._internalLearning()
-            self._externalLearning()
-            if self.ID == 0:
-                print(f"{self.f.evaluateCounter} {self.bestFitness}")
+        self._creatRoutingTable()
+        print(f"[{self.ID}]: {self.neighborsID}")
+        print(f"[{self.ID}] {self.routingTable}")
+        # gen = 100000
+        # for _ in range(gen):
+        #     for _ in range(self.learningInterval):
+        #         self._internalLearning()
+        #     self._externalLearning()
+        #     if self.ID == 0:
+        #         print(f"{self.f.evaluateCounter} {self.bestFitness}")
         return self.swarm[0].position
 
     def _creatRoutingTable(self):
-        pass
-    
+        ROUTING = 5
+        FLOODING = 1
+        STOP = 2
+        class Message:
+            def __init__(self, id:int, age:int, source:int, tag:int) -> None:
+                self.id = id
+                self.age = age
+                self.source = source
+                self.tag = tag
+        
+        messageCache:dict[int, Message] = dict()
+        msg = Message(self.ID, 0, self.ID, FLOODING)
+        send.remote(self.ID, self.neighborsID, msg, ROUTING)
+        self.routingTable[self.ID] = set()
+        for n in self.neighborsID:
+            self.routingTable[self.ID].add(n)
+
+        TIMEOUT = 60
+        while True:
+            m:Message = ray.get(recv.remote(ANY_SRC, self.ID, ROUTING, TIMEOUT))
+            if not m:
+                break
+            if m.tag == FLOODING:
+                if m.id not in messageCache:
+                    messageCache[m.id] = deepcopy(m)
+                    nm = Message(m.id, m.age + 1, self.ID, FLOODING)
+                    send.remote(self.ID, self.neighborsID, nm, ROUTING)
+                    if m.id not in self.routingTable:
+                        self.routingTable[m.id] = set()
+                    for n in self.neighborsID:
+                        self.routingTable[m.id].add(n)
+                else:
+                    om = messageCache.pop(m.id)
+                    if om.age > m.age:
+                        messageCache[m.id] = deepcopy(m)
+                        nm = Message(m.id, m.age + 1, self.ID, FLOODING)
+                        send.remote(self.ID, self.neighborsID, nm, ROUTING)
+                        for n in self.neighborsID:
+                            self.routingTable[m.id].add(n)
+                        st = Message(m.id, 0, self.ID, STOP)
+                        send.remote(self.ID, om.source, st, ROUTING)
+                    else:
+                        st = Message(m.id, 0, self.ID, STOP)
+                        send.remote(self.ID, m.source, st, ROUTING)
+            elif m.tag == STOP:
+                self.routingTable[m.id].discard(m.source)
+            else:
+                raise ValueError("Incorrect routing message type.")
+
+
     def _internalLearning(self):
         self.bestFitness = self.swarm[0].fitness
         self.levelIndex = self._selectLevel()

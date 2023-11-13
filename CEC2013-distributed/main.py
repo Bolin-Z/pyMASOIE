@@ -2,6 +2,7 @@ import ray, time
 from typing import Callable
 from CEC2013 import CEC2013
 from MASOIE.agent import Agent
+from MASOIE.communicate import MessageBuffer
 
 class LocalEvaluator:
     def __init__(self, id:int, localEvaluate:Callable[[list[float], int], float]) -> None:
@@ -35,7 +36,8 @@ if __name__ == "__main__":
             if i!=j and netWorkGraph[i][j] != 0:
                 neighborsIDList[i].append(j)
                 neighborsWeightList[i].append(netWorkGraph[i][j])
-    
+
+    buffers = [MessageBuffer.options(name="MessageBuffer" + str(id)).remote(id) for id in range(numberOfAgents)]
     agents = [Agent.remote(
         dimension,
         lowerBound,
