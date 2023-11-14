@@ -55,11 +55,11 @@ class Agent:
         ) -> None:
 
         # problem
-        problem = CEC2013(funcID)
+        self.problem = CEC2013(funcID)
         self.dimention = dimension
         self.upperBound = upperBound
         self.lowerBound = lowerBound
-        self.f = LocalEvaluator(ID, problem.local_eva)
+        self.f = LocalEvaluator(ID, self.problem.local_eva)
         # structure
         self.swarmSize = swarmSize
         # external learning
@@ -132,6 +132,7 @@ class Agent:
         
         messageCache:dict[int, Message] = dict()
         msg = Message(self.ID, 0, self.ID, FLOODING)
+        messageCache[self.ID] = deepcopy(msg)
         send.remote(self.ID, self.neighborsID, msg, ROUTING)
         self.routingTable[self.ID] = set()
         for n in self.neighborsID:
@@ -139,7 +140,7 @@ class Agent:
 
         TIMEOUT = 60
         while True:
-            res:Message = ray.get(recv.remote(ANY_SRC, self.ID, ROUTING, TIMEOUT))
+            res:tuple[int, Message] = ray.get(recv.remote(ANY_SRC, self.ID, ROUTING, TIMEOUT))
             if not res:
                 break
             else:
@@ -154,8 +155,9 @@ class Agent:
                         for n in self.neighborsID:
                             self.routingTable[m.id].add(n)
                     else:
-                        om = messageCache.pop(m.id)
+                        om = messageCache.get(m.id)
                         if om.age > m.age:
+                            messageCache.pop(m.id)
                             messageCache[m.id] = deepcopy(m)
                             nm = Message(m.id, m.age + 1, self.ID, FLOODING)
                             send.remote(self.ID, self.neighborsID, nm, ROUTING)
@@ -170,7 +172,6 @@ class Agent:
                     self.routingTable[m.id].discard(m.source)
                 else:
                     raise ValueError("Incorrect routing message type.")
-
 
     def _internalLearning(self):
         self.bestFitness = self.swarm[0].fitness
@@ -270,3 +271,27 @@ class Agent:
                 break
         assert selected != -1
         return selected
+
+    def test(self, broadcastID):
+        TESTMSG = 77
+        if self.ID == broadcastID:
+            path = [broadcastID]
+            print(f"[{self.ID}]: path: {path}")
+            if broadcastID in self.routingTable:
+                [send.remote(self.ID, node, path, TESTMSG) for node in self.routingTable[broadcastID]]
+        
+        TIMEOUT = 60
+        while True:
+            msg:tuple[int, list[int]] = ray.get(recv.remote(ANY_SRC, self.ID, TESTMSG, TIMEOUT))
+            if not msg:
+                print(f"[{self.ID}] finish")
+                break
+            else:
+                _, path = msg
+                path.append(self.ID)
+                print(f"[{self.ID}]: path: {path}")
+                if broadcastID in self.routingTable:
+                    [send.remote(self.ID, node, path, TESTMSG) for node in self.routingTable[broadcastID]]
+
+    def _creatRoutingTable2(self):
+        numOfAgents = int(self.problem.getGroupNum())

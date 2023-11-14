@@ -15,6 +15,7 @@ class LocalEvaluator:
         return self.f(x, self.id)
 
 if __name__ == "__main__":
+    ray.init()
     problem = CEC2013("100D20n3dheter-4")
 
     numberOfAgents =  problem.getGroupNum()
@@ -60,6 +61,10 @@ if __name__ == "__main__":
         for ref  in ready:
             p = ray.get(ref)
             positions.append(p)
+    
+    BROADCAST = 9
+    tasks = [agent.test.remote(BROADCAST) for agent in agents]
+    ray.get(tasks)
     
     solution = [0.0 for _ in range(dimension)]
     for d in range(dimension):
