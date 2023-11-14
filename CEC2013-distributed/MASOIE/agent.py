@@ -5,7 +5,7 @@ from functools import total_ordering
 from typing import Callable
 from math import exp
 from CEC2013 import CEC2013
-from copy import deepcopy
+from copy import deepcopy, copy
 
 @total_ordering
 class Particle:
@@ -107,9 +107,9 @@ class Agent:
         self.bestFitness = self.swarm[0].fitness
 
     def run(self) -> float:
-        self._creatRoutingTable()
-        print(f"[{self.ID}]: {self.neighborsID}")
-        print(f"[{self.ID}] {self.routingTable}")
+        self._creatRoutingTable2()
+        # print(f"[{self.ID}]: {self.neighborsID}")
+        # print(f"[{self.ID}] {self.routingTable}")
         # gen = 100000
         # for _ in range(gen):
         #     for _ in range(self.learningInterval):
@@ -295,3 +295,40 @@ class Agent:
 
     def _creatRoutingTable2(self):
         numOfAgents = int(self.problem.getGroupNum())
+        ROUTING = 22
+        CLOSED = 2
+        INFO = 1
+        class Message:
+            def __init__(self, id, nlist, tag) -> None:
+                self.id = id
+                self.nlist = copy(nlist)
+                self.tag = tag
+
+        nlists:dict[int, list[int]] = dict()
+        closed = set()
+
+        nlists[self.ID] = copy(self.neighborsID)
+        msg = Message(self.ID, self.neighborsID, INFO)
+        send.remote(self.ID, self.neighborsID, msg, ROUTING)
+
+        TIMEOUT = 60
+        finish = False
+        while not (finish and (len(closed) >= len(self.neighborsID))):
+            res:tuple[int, Message] = ray.get(recv.remote(ANY_SRC, self.ID, ROUTING, TIMEOUT))
+            if not res:
+                raise Exception("Time out error.")
+            else:
+                src, m = res
+                if m.tag == INFO:
+                    if m.id not in nlists:
+                        nlists[m.id] = m.nlist
+                        [send.remote(self.ID, node, m, ROUTING) for node in self.neighborsID if ((node != src) and (node not in closed))]
+                        if len(nlists) == numOfAgents:
+                            finish = True
+                            st = Message(self.ID, None, CLOSED)
+                            send.remote(self.ID, self.neighborsID, st, ROUTING)
+                elif m.tag == CLOSED:
+                    closed.add(m.id)
+                else:
+                    raise ValueError("Incorrect routing message.")
+        print(f"[{self.ID}]: finish")
