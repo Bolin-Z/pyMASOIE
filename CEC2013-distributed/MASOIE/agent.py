@@ -108,8 +108,8 @@ class Agent:
 
     def run(self) -> float:
         self._creatRoutingTable2()
-        # print(f"[{self.ID}]: {self.neighborsID}")
-        # print(f"[{self.ID}] {self.routingTable}")
+        print(f"[{self.ID}]: {self.neighborsID}")
+        print(f"[{self.ID}] {self.routingTable}")
         # gen = 100000
         # for _ in range(gen):
         #     for _ in range(self.learningInterval):
@@ -331,4 +331,22 @@ class Agent:
                     closed.add(m.id)
                 else:
                     raise ValueError("Incorrect routing message.")
-        print(f"[{self.ID}]: finish")
+        
+        for key in nlists.keys():
+            self.routingTable[key] = set()
+        
+        for key in nlists.keys():
+            visited = set()
+            q = [key]
+            while q:
+                node = q.pop(0)
+                visited.add(q)
+                if node == self.ID:
+                    for n in nlists[node]:
+                        if n not in visited and n not in q:
+                            self.routingTable[key].add(n)
+                    break
+                else:
+                    for n in nlists[node]:
+                        if n not in visited and n not in q:
+                            q.append(n)
