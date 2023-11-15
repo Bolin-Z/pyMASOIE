@@ -1,4 +1,4 @@
-import ray, time, random
+import ray, random
 from .communicate import send, recv
 from .communicate import ANY_SRC, ANY_TAG, DEFAULT_TIMEOUT
 from functools import total_ordering
@@ -23,14 +23,19 @@ class Particle:
         return self.fitness == __o.fitness
 
 class LocalEvaluator:
-    def __init__(self, id:int, localEvaluate:Callable[[list[float], int], float]) -> None:
+    def __init__(self, id:int, maxEvaluate:int, localEvaluate:Callable[[list[float], int], float]) -> None:
         self.id = id
         self.f = localEvaluate
         self.evaluateCounter = 0
+        self.maxEvaluate = maxEvaluate
 
     def __call__(self, x:list[float]) -> float:
         self.evaluateCounter += 1
         return self.f(x, self.id)
+    
+    def reachMaxEvaluate(self) -> bool:
+        return self.evaluateCounter > self.maxEvaluate
+
 @ray.remote
 class Agent:
     def __init__(
@@ -39,6 +44,7 @@ class Agent:
         dimension:int,
         lowerBound:float,
         upperBound:float,
+        maxLocalEvaluate:int,
         # evaluate:Callable[[list[float]], float],
         funcID:str,
         # structure
@@ -59,13 +65,16 @@ class Agent:
         self.dimention = dimension
         self.upperBound = upperBound
         self.lowerBound = lowerBound
-        self.f = LocalEvaluator(ID, self.problem.local_eva)
+        self.f = LocalEvaluator(ID, maxLocalEvaluate, self.problem.local_eva)
         # structure
         self.swarmSize = swarmSize
         # external learning
         self.psi = psi
         # internal learning dllso
         self.learningInterval = learningInterval
+        self.minInverval = 2
+        self.c = 0
+        self.threshold = 10
         self.phi = phi
         self.levelPoolSize = None
         self.levelPool = None
@@ -92,6 +101,9 @@ class Agent:
         for i in range(len(self.neighborsID)):
             self.neighborsWeight[self.neighborsID[i]] = neighborsWeight[i]
         self.routingTable:dict[int, set[int]] = dict()
+        self.communicateList:dict[int, list[int]] = dict()
+        for n in self.neighborsID:
+            self.communicateList[n] = []
 
         # initiate swarm
         self.swarm:list[Particle] = []
@@ -104,20 +116,21 @@ class Agent:
             self.swarm.append(newParticle)
             self.swarmOrdered.append(newParticle)
         self.swarm.sort()
-        self.bestFitness = self.swarm[0].fitness
+
+        self.curFitness = self.swarm[0].fitness
+        self.bestFitness = float('inf')
+        self.fitnessList:list[float|None] = [None for _ in range(self.problem.getGroupNum())]
+
+        self._creatRoutingTable2()
+        self._computeCommunicateList()
 
     def run(self) -> float:
-        self._creatRoutingTable2()
-        print(f"[{self.ID}]: {self.neighborsID}")
-        print(f"[{self.ID}] {self.routingTable}")
-        # gen = 100000
-        # for _ in range(gen):
-        #     for _ in range(self.learningInterval):
-        #         self._internalLearning()
-        #     self._externalLearning()
-        #     if self.ID == 0:
-        #         print(f"{self.f.evaluateCounter} {self.bestFitness}")
-        return self.swarm[0].position
+        for _ in range(self.learningInterval):
+            self._internalLearning()
+        self._externalLearning()
+        self._adaptiveInterval()
+        meanPosition = [sum([p.position[d] for p in self.swarm]) / self.swarmSize for d in range(self.dimention)]
+        return self.f.evaluateCounter, self.swarm[0].position, meanPosition
 
     def _creatRoutingTable(self):
         ROUTING = 5
@@ -174,7 +187,7 @@ class Agent:
                     raise ValueError("Incorrect routing message type.")
 
     def _internalLearning(self):
-        self.bestFitness = self.swarm[0].fitness
+        self.curFitness = self.swarm[0].fitness
         self.levelIndex = self._selectLevel()
         self.NL = self.levelPool[self.levelIndex]
         self.LS = self.swarmSize // self.NL
@@ -218,11 +231,11 @@ class Agent:
         for p in self.swarm:
             p.fitness = self.f(p.position)
         self.swarm.sort()
-        if self.bestFitness > self.swarm[0].fitness:
-            self.levelPerformance[self.levelIndex] = (self.bestFitness - self.swarm[0].fitness) / (self.bestFitness)
+        if self.curFitness > self.swarm[0].fitness:
+            self.levelPerformance[self.levelIndex] = (self.curFitness - self.swarm[0].fitness) / (self.curFitness)
         else:
             self.levelPerformance[self.levelIndex] = 0
-        self.bestFitness = self.swarm[0].fitness
+        self.curFitness = self.swarm[0].fitness
     
     def _externalLearning(self):
         POSITION = 2
@@ -256,7 +269,7 @@ class Agent:
             p.fitness = self.f(p.position)
         
         self.swarm.sort()
-        self.bestFitness = self.swarm[0].fitness
+        self.curFitness = self.swarm[0].fitness
 
     def _selectLevel(self) -> int:
         total = sum([exp(7 * p) for p in self.levelPerformance])
@@ -271,6 +284,40 @@ class Agent:
                 break
         assert selected != -1
         return selected
+
+    def _adaptiveInterval(self):
+        meanFit = 0.0
+        for p in self.swarm:
+            meanFit += p.fitness
+        meanFit /= self.swarmSize
+        self.fitnessList[self.ID] = meanFit
+
+        ADAPTIVE = 45
+        for dst, items in self.communicateList.items():
+            messages:list[tuple[int, float|None]] = []
+            for n in items:
+                messages.append((n, self.fitnessList[n]))
+            send.remote(self.ID, dst, messages, ADAPTIVE)
+        
+        tasks = [recv.remote(n, self.ID, ADAPTIVE) for n in self.neighborsID]
+        while tasks:
+            ready, tasks = ray.wait(tasks)
+            for ref in ready:
+                msg = ray.get(ref)
+                _, messages = msg
+                for u, f in messages:
+                    self.fitnessList[u] = f
+        
+        tmp = [f for f in self.fitnessList if f != None]
+        totalMeanFit = sum(tmp) / len(tmp)
+        if totalMeanFit < self.bestFitness:
+            self.bestFitness = totalMeanFit
+            self.c = 0
+        else:
+            self.c += 1
+            if self.c > self.threshold and self.learningInterval > self.minInverval:
+                self.learningInterval -= 1
+                self.c = 0
 
     def test(self, broadcastID):
         TESTMSG = 77
@@ -340,7 +387,7 @@ class Agent:
             q = [key]
             while q:
                 node = q.pop(0)
-                visited.add(q)
+                visited.add(node)
                 if node == self.ID:
                     for n in nlists[node]:
                         if n not in visited and n not in q:
@@ -350,3 +397,9 @@ class Agent:
                     for n in nlists[node]:
                         if n not in visited and n not in q:
                             q.append(n)
+
+    def _computeCommunicateList(self):
+        for key, items in self.routingTable.items():
+            for n in self.neighborsID:
+                if n in items:
+                    self.communicateList[n].append(key)
