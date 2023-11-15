@@ -81,4 +81,4 @@ if __name__ == "__main__":
         meanVec = [sum([p[d] for p in meanPositions]) / numberOfAgents for d in range(dimension)]
         dvs = sum([computeDistance(meanPositions[n], meanVec) for n in range(numberOfAgents)])
         bestFitness = min(bestFitness, problem.global_eva(solution))
-        print(f"meanEva:{meanCounter}]\n\tFitness:{bestFitness}\n\tdvs:    {dvs}")
+        print(f"meanEva: {meanCounter}\nFitness: {'{:g}'.format(bestFitness)}\ndvs:     {dvs}")
