@@ -1,5 +1,6 @@
 CEC2013-distributed/*
 !CEC2013-distributed/main.py
+!CEC2013-distributed/test.py
 !CEC2013-distributed/MASOIE
 *.tar
 # Byte-compiled / optimized / DLL files
