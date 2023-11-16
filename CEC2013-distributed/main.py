@@ -20,7 +20,7 @@ if __name__ == "__main__":
     psi = 1
     phi = 0.5
     
-    localEvaluators = [LocalEvaluator(i, problem.local_eva) for i in range(numberOfAgents)]
+    localEvaluators = [LocalEvaluator(i, maxLocalEvaluate, problem.local_eva) for i in range(numberOfAgents)]
     netWorkGraph = problem.getNetworkGraph()
     neighborsIDList = [[] for _ in range(numberOfAgents)]
     neighborsWeightList = [[] for _ in range(numberOfAgents)]

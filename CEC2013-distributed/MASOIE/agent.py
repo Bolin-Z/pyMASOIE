@@ -2,10 +2,10 @@ import ray, random
 from .communicate import send, recv
 from .communicate import ANY_SRC, ANY_TAG, DEFAULT_TIMEOUT
 from functools import total_ordering
-from typing import Callable
 from math import exp
 from CEC2013 import CEC2013
 from copy import deepcopy, copy
+from .util import LocalEvaluator
 
 @total_ordering
 class Particle:
@@ -21,20 +21,6 @@ class Particle:
 
     def __eq__(self, __o: "Particle") -> bool:
         return self.fitness == __o.fitness
-
-class LocalEvaluator:
-    def __init__(self, id:int, maxEvaluate:int, localEvaluate:Callable[[list[float], int], float]) -> None:
-        self.id = id
-        self.f = localEvaluate
-        self.evaluateCounter = 0
-        self.maxEvaluate = maxEvaluate
-
-    def __call__(self, x:list[float]) -> float:
-        self.evaluateCounter += 1
-        return self.f(x, self.id)
-    
-    def reachMaxEvaluate(self) -> bool:
-        return self.evaluateCounter > self.maxEvaluate
 
 @ray.remote
 class Agent:
