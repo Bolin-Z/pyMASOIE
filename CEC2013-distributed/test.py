@@ -29,7 +29,7 @@ def run(funcID:str):
                 neighborsIDList[i].append(j)
                 neighborsWeightList[i].append(netWorkGraph[i][j])
     
-    [MessageBuffer.options(name="MessageBuffer" + str(id)).remote(id) for id in range(numberOfAgents)]
+    buffers = [MessageBuffer.options(name="MessageBuffer" + str(id)).remote(id) for id in range(numberOfAgents)]
     agents = [Agent.remote(
         dimension,
         lowerBound,
@@ -131,7 +131,7 @@ if __name__ == "__main__":
         if archives[i]["Fitness"][-1] > archives[WorstArchiveIndex]["Fitness"][-1]:
             WorstArchiveIndex = i
     
-    fig, axs = plt.subplots(nrows=2, ncols=1)
+    fig, axs = plt.subplots(nrows=2, ncols=1, figsize=(16, 10))
     
     axs[0].set_xlabel('TotalEvaluations')
     axs[0].set_ylabel("Fitness")
@@ -147,4 +147,4 @@ if __name__ == "__main__":
     axs[1].plot(np.array(archives[WorstArchiveIndex]["TotalEvaluationTimes"]), np.array(archives[WorstArchiveIndex]["Disagreement"]), '#4a86e8', label="worst")
     axs[1].legend()
 
-    plt.show()
+    plt.savefig(f'{funcID}.png')
