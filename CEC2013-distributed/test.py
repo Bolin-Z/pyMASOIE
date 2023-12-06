@@ -51,6 +51,7 @@ def run(funcID:str):
     archive["Disagreement"] = []
 
     totalEvaluationTimes:int = 0
+    globalEvaluateCounter = 0
     bestFitness = float('inf')
 
     while totalEvaluationTimes < maxLocalEvaluate * numberOfAgents:
@@ -72,8 +73,8 @@ def run(funcID:str):
         bestFitness = min(bestFitness, problem.global_eva(solution))
 
         meanCounter = localEvaluateCounter / numberOfAgents
-        totalEvaluationTimes += localEvaluateCounter
-        totalEvaluationTimes += numberOfAgents
+        globalEvaluateCounter += numberOfAgents
+        totalEvaluationTimes = localEvaluateCounter + globalEvaluateCounter
 
         print(f"TotalEva: {totalEvaluationTimes} (mean: {meanCounter})")
         print(f"Fitness:  {'{:g}'.format(bestFitness)}")
@@ -88,7 +89,7 @@ def run(funcID:str):
     return archive
 
 if __name__ == "__main__":
-    funcID = "100D20n3dheter-4"
+    funcID = "100D5n-2"
     repeatTimes = 5
 
     archives = []
@@ -131,6 +132,22 @@ if __name__ == "__main__":
         if archives[i]["Fitness"][-1] > archives[WorstArchiveIndex]["Fitness"][-1]:
             WorstArchiveIndex = i
     
+    print(f"{'-' * 50}")
+    print(f"{funcID}")
+    print(f"Mean:")
+    print(f"\tTotalEva: {meanResult['TotalEvaluationTimes'][-1]}")
+    print(f"\tFitness:  {'{:g}'.format(meanResult['Fitness'][-1])}")
+    print(f"\tDisagree: {meanResult['Disagreement'][-1]}")
+    print(f"Best:")
+    print(f"\tTotalEva: {archives[BestArchiveIndex]['TotalEvaluationTimes'][-1]}")
+    print(f"\tFitness:  {'{:g}'.format(archives[BestArchiveIndex]['Fitness'][-1])}")
+    print(f"\tDisagree: {archives[BestArchiveIndex]['Disagreement'][-1]}")
+    print(f"Worst:")
+    print(f"\tTotalEva: {archives[WorstArchiveIndex]['TotalEvaluationTimes'][-1]}")
+    print(f"\tFitness:  {'{:g}'.format(archives[WorstArchiveIndex]['Fitness'][-1])}")
+    print(f"\tDisagree: {archives[WorstArchiveIndex]['Disagreement'][-1]}")
+    print(f"{'-' * 50}")
+    
     fig, axs = plt.subplots(nrows=2, ncols=1, figsize=(16, 10))
     
     axs[0].set_xlabel('TotalEvaluations')
@@ -148,3 +165,4 @@ if __name__ == "__main__":
     axs[1].legend()
 
     plt.savefig(f'{funcID}.png')
+    plt.show()
