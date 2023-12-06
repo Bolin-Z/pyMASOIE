@@ -174,7 +174,8 @@ class Agent:
 
     def _internalLearning(self):
         self.curFitness = self.swarm[0].fitness
-        self.levelIndex = self._selectLevel()
+        # self.levelIndex = self._selectLevel()
+        self.levelIndex = self._selectFixedLevel()
         self.NL = self.levelPool[self.levelIndex]
         self.LS = self.swarmSize // self.NL
         # (0, 1, 2, ..., NL - 1)
@@ -270,6 +271,10 @@ class Agent:
                 break
         assert selected != -1
         return selected
+    
+    def _selectFixedLevel(self) -> int:
+        fixedLevelIndex = 0
+        return fixedLevelIndex
 
     def _adaptiveInterval(self):
         meanFit = 0.0
