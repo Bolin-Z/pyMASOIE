@@ -1,6 +1,6 @@
-from .communicate import MessageBuffer
-from .communicate import send, recv
-from .communicate import ANY_TAG, ANY_SRC, DEFAULT_TIMEOUT
+from .communicate import MessageBuffer, Message
+from .communicate import Sender, Receiver
+from .communicate import ANY_TAG, ANY_SRC
 
 from .agent import Agent
 
@@ -10,6 +10,9 @@ from .util import computeDistance
 __all__ = [
     # Class
     "MessageBuffer",
+    "Message",
+    "Sender",
+    "Receiver",
     "Agent",
     "LocalEvaluator",
     # Function
@@ -18,6 +21,5 @@ __all__ = [
     "computeDistance",
     # Const
     "ANY_TAG",
-    "ANY_SRC",
-    "DEFAULT_TIMEOUT"
+    "ANY_SRC"
 ]

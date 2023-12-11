@@ -1,11 +1,14 @@
 import ray, random
-from .communicate import send, recv
-from .communicate import ANY_SRC, ANY_TAG, DEFAULT_TIMEOUT
+from .communicate import Sender, Receiver, Message
+from .communicate import ANY_SRC, ANY_TAG
 from functools import total_ordering
 from math import exp
 from CEC2013 import CEC2013
 from copy import deepcopy, copy
 from .util import LocalEvaluator
+from time import time
+
+TIMEOUT = 60
 
 @total_ordering
 class Particle:
@@ -107,6 +110,10 @@ class Agent:
         self.bestFitness = float('inf')
         self.fitnessList:list[float|None] = [None for _ in range(self.problem.getGroupNum())]
 
+        # communication util
+        self.send = Sender()
+        self.recv = Receiver(self.ID)
+
         self._creatRoutingTable2()
         self._computeCommunicateList()
 
@@ -122,33 +129,37 @@ class Agent:
         ROUTING = 5
         FLOODING = 1
         STOP = 2
-        class Message:
+        class RoutingMessage:
             def __init__(self, id:int, age:int, source:int, tag:int) -> None:
                 self.id = id
                 self.age = age
                 self.source = source
                 self.tag = tag
         
-        messageCache:dict[int, Message] = dict()
-        msg = Message(self.ID, 0, self.ID, FLOODING)
+        messageCache:dict[int, RoutingMessage] = dict()
+        msg = RoutingMessage(self.ID, 0, self.ID, FLOODING)
         messageCache[self.ID] = deepcopy(msg)
-        send.remote(self.ID, self.neighborsID, msg, ROUTING)
+        self.send(self.ID, self.neighborsID, msg, ROUTING)
         self.routingTable[self.ID] = set()
         for n in self.neighborsID:
             self.routingTable[self.ID].add(n)
 
-        TIMEOUT = 60
         while True:
-            res:tuple[int, Message] = ray.get(recv.remote(ANY_SRC, self.ID, ROUTING, TIMEOUT))
+            startTime = time()
+            while True:
+                res: Message | None= ray.get(self.recv(ANY_SRC, self.ID, ROUTING))
+                if res or (time() - startTime > TIMEOUT):
+                    break
             if not res:
+                # timeout or no message
                 break
             else:
-                _, m = res
+                m:RoutingMessage = res.payload
                 if m.tag == FLOODING:
                     if m.id not in messageCache:
                         messageCache[m.id] = deepcopy(m)
                         nm = Message(m.id, m.age + 1, self.ID, FLOODING)
-                        send.remote(self.ID, self.neighborsID, nm, ROUTING)
+                        self.send(self.ID, self.neighborsID, nm, ROUTING)
                         if m.id not in self.routingTable:
                             self.routingTable[m.id] = set()
                         for n in self.neighborsID:
@@ -159,14 +170,14 @@ class Agent:
                             messageCache.pop(m.id)
                             messageCache[m.id] = deepcopy(m)
                             nm = Message(m.id, m.age + 1, self.ID, FLOODING)
-                            send.remote(self.ID, self.neighborsID, nm, ROUTING)
+                            self.send(self.ID, self.neighborsID, nm, ROUTING)
                             for n in self.neighborsID:
                                 self.routingTable[m.id].add(n)
                             st = Message(m.id, 0, self.ID, STOP)
-                            send.remote(self.ID, om.source, st, ROUTING)
+                            self.send(self.ID, om.source, st, ROUTING)
                         else:
                             st = Message(m.id, 0, self.ID, STOP)
-                            send.remote(self.ID, m.source, st, ROUTING)
+                            self.send(self.ID, m.source, st, ROUTING)
                 elif m.tag == STOP:
                     self.routingTable[m.id].discard(m.source)
                 else:
@@ -227,24 +238,31 @@ class Agent:
     def _externalLearning(self):
         POSITION = 2
         positions = [[p.position[d] for d in range(self.dimention)] for p in self.swarmOrdered]
-        send.remote(self.ID, self.neighborsID, positions, POSITION)
+        self.send(self.ID, self.neighborsID, positions, POSITION)
         
         for p in self.swarmOrdered:
             for d in range(self.dimention):
                 p.externalVelocity[d] *= random.random() * self.psi
-        
-        waitingTasks = [recv.remote(n, self.ID, POSITION) for n in self.neighborsID]
-        while waitingTasks:
-            readyTasks, waitingTasks = ray.wait(waitingTasks)
-            for task in readyTasks:
-                msg = ray.get(task)
-                assert msg
-                src, position = msg
-                for i in range(self.swarmSize):
-                    for d in range(self.dimention):
-                        self.swarmOrdered[i].externalVelocity[d] += self.neighborsWeight[src] * (position[i][d] - self.swarmOrdered[i].position[d])
 
-        
+        tasks = [n for n in self.neighborsID]
+        startWaitingTime = time()
+        while len(tasks) > 0 or (time() - startWaitingTime < TIMEOUT):
+            flag = False
+            waitingTasks = [self.recv(n, self.ID, POSITION) for n in tasks]
+            while waitingTasks:
+                readyTasks, waitingTasks = ray.wait(waitingTasks)
+                for task in readyTasks:
+                    msg:Message = ray.get(task)
+                    if msg:
+                        src, position = msg.src, msg.payload
+                        for i in range(self.swarmSize):
+                            for d in range(self.dimention):
+                                self.swarmOrdered[i].externalVelocity[d] += self.neighborsWeight[src] * (position[i][d] - self.swarmOrdered[i].position[d])
+                        flag = True
+                        tasks.remove(src)
+            if flag:
+                startWaitingTime = time()
+
         for p in self.swarmOrdered:
             for d in range(self.dimention):
                 p.internalVelocity[d] = p.externalVelocity[d]
@@ -288,17 +306,26 @@ class Agent:
             messages:list[tuple[int, float|None]] = []
             for n in items:
                 messages.append((n, self.fitnessList[n]))
-            send.remote(self.ID, dst, messages, ADAPTIVE)
-        
-        tasks = [recv.remote(n, self.ID, ADAPTIVE) for n in self.neighborsID]
-        while tasks:
-            ready, tasks = ray.wait(tasks)
-            for ref in ready:
-                msg = ray.get(ref)
-                _, messages = msg
-                for u, f in messages:
-                    self.fitnessList[u] = f
-        
+            self.send(self.ID, dst, messages, ADAPTIVE)
+
+        tasks = [n for n in self.neighborsID]
+        startWaitingTime = time()
+        while len(tasks) > 0 or (time() - startWaitingTime < TIMEOUT):
+            flag = False
+            waitingTasks = [self.recv(n, self.ID, ADAPTIVE) for n in tasks]
+            while waitingTasks:
+                readyTasks, waitingTasks = ray.wait(waitingTasks)
+                for task in readyTasks:
+                    msg:Message = ray.get(task)
+                    if msg:
+                        src, messages = msg.src, msg.payload
+                        for u, f in messages:
+                            self.fitnessList[u] = f
+                        flag = True
+                        tasks.remove(src)
+            if flag:
+                startWaitingTime = time()
+
         tmp = [f for f in self.fitnessList if f != None]
         totalMeanFit = sum(tmp) / len(tmp)
         if totalMeanFit < self.bestFitness:
@@ -316,27 +343,29 @@ class Agent:
             path = [broadcastID]
             print(f"[{self.ID}]: path: {path}")
             if broadcastID in self.routingTable:
-                [send.remote(self.ID, node, path, TESTMSG) for node in self.routingTable[broadcastID]]
-        
-        TIMEOUT = 60
+                [self.send(self.ID, node, path, TESTMSG) for node in self.routingTable[broadcastID]]
+
         while True:
-            msg:tuple[int, list[int]] = ray.get(recv.remote(ANY_SRC, self.ID, TESTMSG, TIMEOUT))
+            startWaitingTime = time()
+            msg:Message|None = None
+            while not msg and (time() - startWaitingTime < TIMEOUT):
+                msg = ray.get(self.recv(ANY_SRC, self.ID, TESTMSG))
             if not msg:
                 print(f"[{self.ID}] finish")
                 break
             else:
-                _, path = msg
+                src, path = msg.src, msg.payload
                 path.append(self.ID)
                 print(f"[{self.ID}]: path: {path}")
                 if broadcastID in self.routingTable:
-                    [send.remote(self.ID, node, path, TESTMSG) for node in self.routingTable[broadcastID]]
+                    [self.send(self.ID, node, path, TESTMSG) for node in self.routingTable[broadcastID]]
 
     def _creatRoutingTable2(self):
         numOfAgents = int(self.problem.getGroupNum())
         ROUTING = 22
         CLOSED = 2
         INFO = 1
-        class Message:
+        class RoutingMessage:
             def __init__(self, id, nlist, tag) -> None:
                 self.id = id
                 self.nlist = copy(nlist)
@@ -346,30 +375,32 @@ class Agent:
         closed = set()
 
         nlists[self.ID] = copy(self.neighborsID)
-        msg = Message(self.ID, self.neighborsID, INFO)
-        send.remote(self.ID, self.neighborsID, msg, ROUTING)
+        msg = RoutingMessage(self.ID, self.neighborsID, INFO)
+        self.send(self.ID, self.neighborsID, msg, ROUTING)
 
-        TIMEOUT = 60
         finish = False
         while not (finish and (len(closed) >= len(self.neighborsID))):
-            res:tuple[int, Message] = ray.get(recv.remote(ANY_SRC, self.ID, ROUTING, TIMEOUT))
-            if not res:
+            startWaitingTime = time()
+            msg:Message|None = None
+            while not msg and (time() - startWaitingTime < TIMEOUT):
+                msg = ray.get(self.recv(ANY_SRC, self.ID, ROUTING))
+            if not msg:
                 raise Exception("Time out error.")
             else:
-                src, m = res
+                src, m = msg.src, msg.payload
                 if m.tag == INFO:
                     if m.id not in nlists:
                         nlists[m.id] = m.nlist
-                        [send.remote(self.ID, node, m, ROUTING) for node in self.neighborsID if ((node != src) and (node not in closed))]
+                        [self.send(self.ID, node, m, ROUTING) for node in self.neighborsID if ((node != src) and (node not in closed))]
                         if len(nlists) == numOfAgents:
                             finish = True
-                            st = Message(self.ID, None, CLOSED)
-                            send.remote(self.ID, self.neighborsID, st, ROUTING)
+                            st = RoutingMessage(self.ID, None, CLOSED)
+                            self.send(self.ID, self.neighborsID, st, ROUTING)
                 elif m.tag == CLOSED:
                     closed.add(m.id)
                 else:
                     raise ValueError("Incorrect routing message.")
-        
+
         for key in nlists.keys():
             self.routingTable[key] = set()
         
